@@ -81,7 +81,7 @@ style: |
 
 ---
 
-# Roteamento Moderno e Middleware
+# Roteamento e Middleware
 ## net/http — Parte 2
 
 **Prof. Fernando** · DIM0547 · 2026.1
@@ -324,6 +324,8 @@ func meuHandler(w http.ResponseWriter, r *http.Request) {
 
 # 📝 Lista 2: Roteamento e Middleware
 
+**Prazo**: 17/04 (sexta) — GitHub Classroom
+
 | Ex | Tema | Conceito principal |
 |----|------|--------------------|
 | 01 | CRUD de contatos | `ServeMux` Go 1.22+, `PathValue`, JSON |
@@ -338,3 +340,13 @@ func meuHandler(w http.ResponseWriter, r *http.Request) {
 - Leia os `*_test.go` — eles são a especificação
 
 ---
+
+# Próximos passos
+
+**Esta semana:**
+- 📝 **Lista 2** (net/http + middleware) — publicada hoje, prazo **17/04 (sex)**
+- Quinta 09/04: Aula presencial — **Introdução ao Chi** + JSON em Go
+
+**Semana que vem (14-16/04):**
+- Terça: Chi avançado + OpenAPI
+- Quinta: 🔵 Acompanhamento online — **Sprint 1**
