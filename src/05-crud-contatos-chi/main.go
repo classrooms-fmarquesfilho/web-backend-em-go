@@ -21,6 +21,8 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -49,16 +51,55 @@ func NewRouter() http.Handler {
 	}
 
 	r := chi.NewRouter()
-
-	// TODO: registre as 4 rotas aqui usando r.Get, r.Post, r.Delete
-
-	_ = a // remova esta linha quando começar a usar 'a'
+	r.Get("/contacts", a.listContacts)
+	r.Post("/contacts", a.createContact)
+	r.Get("/contacts/{id}", a.getContact)
+	r.Delete("/contacts/{id}", a.deleteContact)
 	return r
 }
 
-// TODO: implemente os handlers como métodos de *app:
-//
-// func (a *app) listContacts(w http.ResponseWriter, r *http.Request)
-// func (a *app) createContact(w http.ResponseWriter, r *http.Request)
-// func (a *app) getContact(w http.ResponseWriter, r *http.Request)
-// func (a *app) deleteContact(w http.ResponseWriter, r *http.Request)
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func (a *app) listContacts(w http.ResponseWriter, r *http.Request) {
+	list := make([]Contact, 0, len(a.contacts))
+	for _, c := range a.contacts {
+		list = append(list, c)
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (a *app) createContact(w http.ResponseWriter, r *http.Request) {
+	var c Contact
+	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	c.ID = fmt.Sprintf("%d", a.nextID)
+	a.nextID++
+	a.contacts[c.ID] = c
+	writeJSON(w, http.StatusCreated, c)
+}
+
+func (a *app) getContact(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	c, ok := a.contacts[id]
+	if !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, c)
+}
+
+func (a *app) deleteContact(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if _, ok := a.contacts[id]; !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	delete(a.contacts, id)
+	w.WriteHeader(http.StatusNoContent)
+}
