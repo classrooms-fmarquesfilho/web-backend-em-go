@@ -1,65 +1,64 @@
-package main
-
-// Exercício 1: CRUD de Contatos com Go + Chi(25 pontos)
-// Este exercício é idêntico ao ex01 da lista 02, mas usando Chi para roteamento.
+// Exercício 1 — Migrar CRUD de Contatos para Chi
 //
-// Implemente os 4 handlers abaixo. Use os novos padrões de roteamento do Go 1.22+
-// (método no pattern e r.PathValue para parâmetros de rota).
+// Reimplemente o CRUD de contatos da Lista 2 (ex01) usando o router Chi
+// no lugar do http.ServeMux. A interface pública e o comportamento devem
+// ser EXATAMENTE OS MESMOS dos testes.
 //
 // Endpoints esperados:
-//   GET    /contacts      → Lista todos os contatos (JSON array, status 200)
-//   POST   /contacts      → Cria um contato (recebe JSON, status 201)
-//   GET    /contacts/{id} → Busca contato por ID (status 200 ou 404)
-//   DELETE /contacts/{id} → Remove contato por ID (status 204 ou 404)
+//   GET    /contacts        → 200 + array JSON
+//   POST   /contacts        → 201 + objeto criado
+//   GET    /contacts/{id}   → 200 ou 404
+//   DELETE /contacts/{id}   → 204 ou 404
 //
-// Regras:
-//   - Armazene os contatos em memória (use uma map[string]Contact)
-//   - IDs são strings sequenciais ("1", "2", "3", ...)
-//   - GET /contacts retorna [] (array vazio) quando não há contatos, NÃO null
-//   - Content-Type deve ser "application/json" em todas as respostas JSON
+// Requisitos:
+//   - Usar github.com/go-chi/chi/v5 (já no go.mod)
+//   - NewRouter() retorna http.Handler
+//   - chi.URLParam(r, "id") para extrair parâmetros de path
+//   - Content-Type "application/json" em todas as respostas com corpo
 //
-// IMPORTANTE: Os testes chamam NewRouter() diretamente. NÃO use http.DefaultServeMux
-// e NÃO chame http.ListenAndServe.
+// NÃO chame http.ListenAndServe — os testes usam httptest.
+
+package main
 
 import (
 	"net/http"
+
+	"github.com/go-chi/chi/v5"
 )
 
-// Contact representa um contato armazenado pela API.
-// Use este tipo no seu armazenamento e nas respostas JSON.
+// Contact é o modelo do recurso.
 type Contact struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Email string `json:"email"`
 }
 
-func NewRouter() *http.ServeMux {
-	mux := http.NewServeMux()
-
-	// Dica: você pode declarar o estado aqui (store map, contador de IDs, sync.Mutex)
-	// var (
-	//     mu     sync.Mutex
-	//     store  = make(map[string]Contact)
-	//     nextID int
-	// )
-
-	mux.HandleFunc("GET /contacts", func(w http.ResponseWriter, r *http.Request) {
-		// IMPLEMENTAR: Retornar a lista de contatos como JSON array
-		_ = Contact{} // remova esta linha quando implementar
-	})
-
-	mux.HandleFunc("POST /contacts", func(w http.ResponseWriter, r *http.Request) {
-		// IMPLEMENTAR: Criar um novo contato (status 201)
-	})
-
-	mux.HandleFunc("GET /contacts/{id}", func(w http.ResponseWriter, r *http.Request) {
-		// IMPLEMENTAR: Retornar um contato específico por ID
-		// Use r.PathValue("id") para extrair o parâmetro da rota
-	})
-
-	mux.HandleFunc("DELETE /contacts/{id}", func(w http.ResponseWriter, r *http.Request) {
-		// IMPLEMENTAR: Deletar um contato específico por ID (status 204)
-	})
-
-	return mux
+// app encapsula o estado da aplicação. NÃO use variáveis globais
+// para storage — os testes criam uma nova instância para cada caso.
+type app struct {
+	contacts map[string]Contact
+	nextID   int
 }
+
+// NewRouter retorna o router Chi configurado com todas as rotas.
+// É a função pública chamada pelos testes.
+func NewRouter() http.Handler {
+	a := &app{
+		contacts: make(map[string]Contact),
+		nextID:   1,
+	}
+
+	r := chi.NewRouter()
+
+	// TODO: registre as 4 rotas aqui usando r.Get, r.Post, r.Delete
+
+	_ = a // remova esta linha quando começar a usar 'a'
+	return r
+}
+
+// TODO: implemente os handlers como métodos de *app:
+//
+// func (a *app) listContacts(w http.ResponseWriter, r *http.Request)
+// func (a *app) createContact(w http.ResponseWriter, r *http.Request)
+// func (a *app) getContact(w http.ResponseWriter, r *http.Request)
+// func (a *app) deleteContact(w http.ResponseWriter, r *http.Request)
