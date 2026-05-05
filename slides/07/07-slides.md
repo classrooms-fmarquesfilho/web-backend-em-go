@@ -90,300 +90,436 @@ style: |
 
 ---
 
-# O problema
+# Hoje
 
-```go
-var contacts = map[string]Contact{}  // Sprint 1
-```
+<div class="columns">
+<div class="col">
 
-- Reinicia o servidor → **perde tudo**
-- Não escala para múltiplas instâncias
-- Sem transações, sem índices, sem integridade referencial
+**O que vamos ver**
 
-**Sprint 2**: trocar por **PostgreSQL** de verdade.
+- Por que `map` não serve para produção
+- Por que sqlc em vez de ORM
+- PostgreSQL com Docker
+- Schema + queries → `sqlc generate`
+- Conectar a API ao banco
 
-A pergunta é: **como acessar o banco em Go?**
+</div>
+<div class="col">
+
+**O que fica para quinta**
+
+- Migrations (versionar o schema)
+- Clean Architecture
+- Interface de repositório
+- Testes sem banco real
+
+</div>
+</div>
 
 ---
 
-# Três abordagens
+# O problema: Sprint 1
 
-| Abordagem | Exemplo | Prós | Contras |
-|-----------|---------|------|---------|
-| **ORM** | GORM | Produtividade rápida | Abstrações vazam, queries escondidas |
-| **Raw SQL** | `database/sql` | Controle total | Repetitivo, sem type safety |
-| **SQL-first codegen** | **sqlc** ✅ | SQL real + tipo seguro | Precisa saber SQL |
+```go
+var contacts = map[string]Contact{}
+```
+
+### Três problemas fundamentais
+
+**1. Volatilidade** — reinicia o servidor, perde tudo.
+Em produção, containers reiniciam o tempo todo.
+
+**2. Race condition** — Go executa handlers em goroutines paralelas.
+`map` não é seguro na prevenção de condições de corrida.
+
+**3. Escala** — load balancer → N instâncias → N mapas diferentes.
+Banco de dados é o ponto de coordenação compartilhado.
 
 ---
 
-# Por que sqlc (e não GORM)
+# As três abordagens
 
-**GORM** (ORM):
+| Abordagem | Exemplo | O que acontece na prática |
+|-----------|---------|--------------------------|
+| **ORM** | GORM | Queries escondidas. Funciona até ficar lento — aí você depura SQL que não escreveu. |
+| **Raw SQL** | `database/sql` | Controle total, SQL visível. Mas pode se tornar verboso e frágil. |
+| **SQL-first codegen** | **sqlc** ✅ | Você escreve SQL puro. O sqlc gera Go tipado. SQL visível + tipo checados em tempo de compilação. |
+
+---
+
+# Por que não ORM
+
 ```go
-db.Where("email = ?", email).First(&contact)
-// Que SQL isso gera? 🤷
-// E se a query for lenta? Debug no escuro.
+// GORM — o que esse código faz?
+db.Where("email = ?", email).
+   Preload("Orders").
+   First(&contact)
+// Que SQL isso gera?
+// Quantas queries? Tem JOIN? Quantos?
+// E se ficar lento?
 ```
 
-**sqlc** (SQL-first):
 ```sql
+-- sqlc — você sabe exatamente o que acontece
 -- name: GetContactByEmail :one
 SELECT * FROM contacts WHERE email = $1;
 ```
-```go
-contact, err := queries.GetContactByEmail(ctx, email)
-// SQL visível, tipado, compile-time checked
-```
 
-> **ORM esconde SQL. Quando a query fica lenta, vocês vão debugar SQL de qualquer jeito.** Melhor começar sabendo SQL.
+> **ORMs escondem SQL. Quando a query fica lenta — e vai ficar — você vai debugar SQL de qualquer jeito. Melhor aprender SQL desde o começo. É uma habilidade transferível.**
+
+---
+
+# Por que sqlc especificamente
+
+- **Zero reflexão em runtime** — GORM usa reflexão para mapear campos.
+  sqlc gera código Go compilado sem intermediários em runtime.
+
+- **Erros em tempo de geração** — se você errar o nome de uma coluna,
+  `sqlc generate` falha. O erro aparece antes de chegar em produção.
+
+- **Código legível** — `internal/db/contacts.sql.go` é Go normal.
+  Você pode abrir, ler e entender. Não é caixa-preta.
+
+- **SQL é a habilidade transferível** — o banco muda, o ORM muda, Go muda.
+  SQL tem 50 anos e continua por aí.
 
 ---
 
 # Como sqlc funciona
 
 ```
-1. Você escreve SQL  →  2. sqlc gera Go  →  3. Você usa Go tipado
-```
-
-```
-db/schema/001.sql        sqlc generate        internal/db/
-  CREATE TABLE ...    ──────────────────>     contacts.sql.go
-                                              models.go
-db/queries/contacts.sql                       db.go
+Você escreve SQL          sqlc lê tudo          Você usa Go
+──────────────────        ─────────────         ──────────────────
+db/schema/001.sql    →                    →    internal/db/
+  CREATE TABLE ...       sqlc generate          contacts.sql.go
+                                                models.go
+db/queries/contacts.sql                         db.go
   -- name: List :many
   SELECT * FROM ...
 ```
 
-> Erros de SQL são pegos em **compile time**, não em runtime.
+> Erros de SQL são pegos em **tempo de geração**, não em tempo de execução na madrugada.
 
 ---
 
-# Setup: sqlc.yaml
+# PostgreSQL com Docker
 
-```yaml
-version: "2"
-sql:
-  - engine: "postgresql"
-    queries: "db/queries/"
-    schema: "db/schema/"
-    gen:
-      go:
-        package: "db"
-        out: "internal/db"
+```bash
+docker run -d \
+  --name postgres-webii \
+  -p 5432:5432 \
+  -e POSTGRES_USER=dev \
+  -e POSTGRES_PASSWORD=secret \
+  -e POSTGRES_DB=contacts \
+  postgres:15
+```
+
+<div class="columns">
+<div class="col">
+
+`-d` — background, não ocupa o terminal
+
+`--name` — nome legível para `docker stop`
+
+`-p 5432:5432` — `host:container`
+
+</div>
+<div class="col">
+
+`-e POSTGRES_*` — configuração inicial da imagem oficial
+
+`postgres:15` — versão fixada.
+**Nunca use `latest`** em projetos reais.
+
+</div>
+</div>
+
+---
+
+# Por que Docker para o banco
+
+> "Docker garante que a versão é **idêntica** para todos: você, seu colega de equipe, o CI. Mesma imagem. Isso elimina a categoria inteira de bugs *'funciona na minha máquina'*."
+
+```bash
+# Verificar que está rodando
+docker ps
+
+# Entrar no banco
+docker exec -it postgres-webii psql -U dev -d contacts
 ```
 
 ```bash
-go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+# URL de conexão — interface padrão entre aplicação e banco
+export DATABASE_URL="postgres://dev:secret@localhost:5432/contacts?sslmode=disable"
 ```
+
+*`sslmode=disable` apenas para desenvolvimento local. Em produção: sempre TLS.*
 
 ---
 
-# Passo 1: Definir o schema
+# Criando a tabela
 
 ```sql
--- db/schema/001_contacts.sql
-
 CREATE TABLE contacts (
-    id         SERIAL PRIMARY KEY,
-    name       TEXT NOT NULL,
-    email      TEXT NOT NULL UNIQUE,
+    id         SERIAL      PRIMARY KEY,
+    name       TEXT        NOT NULL,
+    email      TEXT        NOT NULL UNIQUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ```
 
-> **SERIAL** = auto-incremento. **TIMESTAMPTZ** = timestamp com timezone. **UNIQUE** = banco garante unicidade, não o código Go.
+| Tipo | Significado |
+|------|-------------|
+| `SERIAL` | Inteiro auto-incrementado. O **banco** atribui o ID — não a aplicação. Evita colisão em ambiente concorrente. |
+| `TEXT` | String sem limite de tamanho. `VARCHAR(255)` é resquício do MySQL — no PostgreSQL moderno, use `TEXT`. |
+| `UNIQUE` | Constraint no **banco**. Mesmo com requests simultâneos, o banco garante unicidade neste campo.
+| `TIMESTAMPTZ` | Timestamp **com** timezone, armazenado em UTC. Sempre use `TIMESTAMPTZ`, nunca `TIMESTAMP`. |
+| `DEFAULT NOW()` | Banco preenche automaticamente — a aplicação não passa esse campo. |
 
 ---
 
-# Passo 2: Escrever as queries
+# O ciclo sqlc
+
+<div class="columns">
+<div class="col">
+
+**Você escreve** (humano)
+
+```
+db/schema/
+  001_contacts.sql
+  002_orders.sql
+
+db/queries/
+  contacts.sql
+  orders.sql
+
+sqlc.yaml
+```
+
+</div>
+<div class="col">
+
+**sqlc gera** (máquina)
+
+```
+internal/db/
+  db.go          ← interface DBTX
+  models.go      ← structs tipados
+  contacts.sql.go
+  orders.sql.go
+```
+
+**Você usa** (humano)
+
+```go
+queries.ListContacts(ctx)
+queries.CreateOrder(ctx, arg)
+```
+
+</div>
+</div>
+
+> O sqlc lê o schema para inferir os tipos. Ele lê as queries para gerar as funções. Você nunca escreve código de acesso a banco — só SQL.
+
+---
+
+# Anotações: a linguagem do sqlc
+
+Todo comentário `-- name: X :tipo` instrui o sqlc sobre **como gerar** a função Go correspondente.
+
+| Anotação | Assinatura gerada | Caso de uso |
+|----------|-------------------|-------------|
+| `:many` | `(...) ([]T, error)` | SELECT sem LIMIT conhecido |
+| `:one` | `(...) (T, error)` | SELECT por PK, INSERT com RETURNING |
+| `:exec` | `(...) error` | DELETE, UPDATE sem retorno |
+| `:execresult` | `(...) (pgconn.CommandTag, error)` | Quando precisa saber quantas linhas foram afetadas |
+| `:copyfrom` | bulk insert | Inserir muitas linhas de uma vez (via COPY) |
+
+> Se a query não encontrar nada com `:one`, o erro retornado é `pgx.ErrNoRows` — que você verifica no handler para retornar 404.
+
+---
+
+# Anotações: exemplos variados
+
+<div class="columns">
+<div class="col">
+
+**`:many` com filtro opcional**
+```sql
+-- name: ListByStatus :many
+SELECT * FROM orders
+WHERE status = $1
+ORDER BY created_at DESC;
+```
+
+**`:one` com JOIN**
+```sql
+-- name: GetOrderWithCustomer :one
+SELECT o.*, c.name AS customer_name
+FROM orders o
+JOIN customers c ON c.id = o.customer_id
+WHERE o.id = $1;
+```
+
+</div>
+<div class="col">
+
+**`:exec` para UPDATE**
+```sql
+-- name: MarkAsShipped :exec
+UPDATE orders
+SET status = 'shipped',
+    shipped_at = NOW()
+WHERE id = $1;
+```
+
+**`:execresult` quando importa saber**
+```sql
+-- name: CancelPending :execresult
+UPDATE orders
+SET status = 'cancelled'
+WHERE customer_id = $1
+  AND status = 'pending';
+-- rows affected = quantos pedidos foram cancelados
+```
+
+</div>
+</div>
+
+---
+
+# RETURNING: INSERT que devolve dados
+
+Sem `RETURNING`, um INSERT não retorna nada — você não sabe o `id` gerado pelo banco.
 
 ```sql
--- db/queries/contacts.sql
+-- Sem RETURNING — `:exec`
+-- name: CreateContactSilent :exec
+INSERT INTO contacts (name, email) VALUES ($1, $2);
+-- resultado: error. Você não sabe qual ID foi criado.
 
--- name: ListContacts :many
-SELECT * FROM contacts ORDER BY created_at DESC;
-
--- name: GetContact :one
-SELECT * FROM contacts WHERE id = $1;
-
+-- Com RETURNING — `:one`
 -- name: CreateContact :one
 INSERT INTO contacts (name, email)
 VALUES ($1, $2)
 RETURNING *;
-
--- name: DeleteContact :exec
-DELETE FROM contacts WHERE id = $1;
+-- resultado: Contact completo, incluindo id e created_at
 ```
+
+> `RETURNING` é uma extensão PostgreSQL — não existe em MySQL.
 
 ---
 
-# Anotações sqlc
+# Parâmetros posicionais: $1, $2...
 
-| Anotação | Retorno Go | Quando usar |
-|----------|-----------|-------------|
-| `:one` | `(Model, error)` | SELECT que retorna 1 registro |
-| `:many` | `([]Model, error)` | SELECT que retorna N registros |
-| `:exec` | `error` | DELETE, UPDATE sem retorno |
-| `:execresult` | `(sql.Result, error)` | Quando precisa de RowsAffected |
-| `:execrows` | `(int64, error)` | Atalho para RowsAffected |
+PostgreSQL usa parâmetros **posicionais**, não `?` como MySQL/SQLite.
 
-**`RETURNING *`** → faz INSERT/UPDATE retornar o registro criado (use com `:one`)
+```sql
+-- MySQL / SQLite
+SELECT * FROM contacts WHERE name = ? AND email = ?;
+
+-- PostgreSQL
+SELECT * FROM contacts WHERE name = $1 AND email = $2;
+```
+
+**A vantagem**: você pode referenciar o mesmo parâmetro múltiplas vezes.
+
+```sql
+-- name: SearchContacts :many
+SELECT * FROM contacts
+WHERE name  ILIKE '%' || $1 || '%'
+   OR email ILIKE '%' || $1 || '%';
+-- $1 aparece duas vezes — impossível com ?
+```
+
+sqlc gera `SearchContactsParams` automaticamente com um único campo `Query string`.
 
 ---
 
-# Passo 3: Gerar código
+# Mapeamento de tipos SQL → Go
 
-```bash
-sqlc generate
+O sqlc lê o schema e infere os tipos Go correspondentes. Você nunca precisa declarar os structs.
+
+| Tipo PostgreSQL | Tipo Go gerado | Observação |
+|-----------------|---------------|------------|
+| `SERIAL` / `INTEGER` | `int32` | |
+| `BIGSERIAL` / `BIGINT` | `int64` | Prefira para IDs em sistemas grandes |
+| `TEXT` / `VARCHAR` | `string` | |
+| `BOOLEAN` | `bool` | |
+| `NUMERIC` / `DECIMAL` | `pgtype.Numeric` | Nunca `float64` para dinheiro |
+| `TIMESTAMPTZ` | `time.Time` | Sempre com timezone |
+| `UUID` | `pgtype.UUID` ou `[16]byte` | |
+| `TEXT[]` | `[]string` | Arrays nativos do PostgreSQL |
+| `JSONB` | `[]byte` ou tipo customizado | |
+
+> Colunas `NOT NULL` geram tipos diretos. Colunas **nullable** geram tipos com ponteiro ou `pgtype.X` — o sqlc força você a tratar o caso `NULL` explicitamente.
+
+---
+
+# Nullable vs NOT NULL
+
+```sql
+CREATE TABLE products (
+    id          SERIAL PRIMARY KEY,
+    name        TEXT NOT NULL,
+    description TEXT,           -- nullable
+    deleted_at  TIMESTAMPTZ     -- nullable
+);
 ```
-
-Gera automaticamente em `internal/db/`:
 
 ```go
-// models.go — structs
-type Contact struct {
-    ID        int32
-    Name      string
-    Email     string
-    CreatedAt time.Time
-}
-
-// contacts.sql.go — funções
-func (q *Queries) ListContacts(ctx context.Context) ([]Contact, error)
-func (q *Queries) GetContact(ctx context.Context, id int32) (Contact, error)
-func (q *Queries) CreateContact(ctx context.Context, arg CreateContactParams) (Contact, error)
-func (q *Queries) DeleteContact(ctx context.Context, id int32) error
-```
-
-> **Struct gerada com tipos corretos**: `int32` para SERIAL, `time.Time` para TIMESTAMPTZ.
-
----
-
-# Passo 4: Conectar ao banco
-
-```go
-import (
-    "github.com/jackc/pgx/v5/pgxpool"
-    "meuapp/internal/db"
-)
-
-func main() {
-    ctx := context.Background()
-
-    pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer pool.Close()
-
-    queries := db.New(pool)
-
-    router := handler.NewRouter(queries)
-    http.ListenAndServe(":8080", router)
-}
-```
-
-**DATABASE_URL**: `postgres://user:pass@localhost:5432/mydb?sslmode=disable`
-
----
-
-# Passo 5: Usar nos handlers
-
-```go
-func (h *Handler) listContacts(w http.ResponseWriter, r *http.Request) {
-    contacts, err := h.queries.ListContacts(r.Context())
-    if err != nil {
-        writeProblem(w, ProblemDetails{
-            Status: 500, Title: "Internal Error",
-            Detail: "failed to list contacts",
-        })
-        return
-    }
-    writeJSON(w, http.StatusOK, contacts)
+// models.go gerado
+type Product struct {
+    ID          int32
+    Name        string       // NOT NULL → tipo direto
+    Description pgtype.Text  // nullable → pgtype.Text{Valid: bool, String: string}
+    DeletedAt   pgtype.Timestamptz
 }
 ```
 
-**Diferença do map**:
-- Antes: `list := make([]Contact, 0); for _, c := range a.contacts { ... }`
-- Depois: `contacts, err := h.queries.ListContacts(r.Context())`
-
-> **Mais simples, mais seguro, persistente.**
+> Colunas nullable "sangram" para o código Go — você é **forçado** a lidar com o caso NULL. Isso é bom: evita `nil pointer dereference` em produção. Por isso declare `NOT NULL` sempre que possível no schema.
 
 ---
 
-# Migrations: versionando o schema
-
-**Problema**: como aplicar mudanças no banco de forma **reprodutível e versionada**?
-
-**Migrations** = scripts SQL numerados que transformam o schema:
+# O que sqlc generate produz
 
 ```
-db/schema/
-├── 001_contacts.sql        # CREATE TABLE contacts
-├── 002_add_phone.sql       # ALTER TABLE contacts ADD COLUMN phone TEXT
-└── 003_create_orders.sql   # CREATE TABLE orders
+internal/db/
+├── db.go            ← interface DBTX (aceita *pgx.Conn ou *pgxpool.Pool)
+├── models.go        ← um struct por tabela, tipos inferidos do schema
+└── contacts.sql.go  ← uma função por query anotada
 ```
 
-Cada migration roda **uma vez**, em ordem. O banco lembra quais já foram aplicadas.
+**`db.go`** define a interface que o `*Queries` usa internamente — isso permite passar tanto uma conexão direta quanto um pool, ou até uma transação (`pgx.Tx`).
+
+**`models.go`** é gerado uma vez por tabela. Se você adicionar uma coluna ao schema e regenerar, o struct é atualizado automaticamente.
+
+**`contacts.sql.go`** tem o SQL literal como constante Go e a função tipada. O SQL **não é interpretado em runtime** — é uma string constante passada ao banco.
+
+> **Regra**: nunca edite `internal/db/` à mão. Edite o `.sql`, rode `sqlc generate`, commite os dois juntos.
 
 ---
 
-# Aplicando migrations (simples)
+# Pool de conexões
 
-**Opção mínima** (sem ferramenta):
+Cada request HTTP pode precisar de uma query ao banco.
 
-```bash
-psql -U user -d mydb -f db/schema/001_contacts.sql
+```
+Sem pool                      Com pgxpool
+────────────────              ─────────────────────────────
+request 1 → abre TCP          request 1 → [ conn 1 ] → banco
+           → query                                          
+           → fecha TCP         request 2 → [ conn 2 ] → banco  ← paralelo
+                               
+request 2 → abre TCP           request 3 → aguarda conn livre
+           → query            
+           → fecha TCP        Pool: min=2, max=4×CPUs (padrão)
 ```
 
-**Com golang-migrate** (recomendado para CI):
+Abrir uma conexão TCP tem custo fixo (~5ms). Com pool esse custo é pago uma vez. Sem pool, toda requisição sob carga paga esse custo.
 
-```bash
-go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
-
-migrate -path db/schema -database "$DATABASE_URL" up
-```
-
-**Com Atlas** (mais poderoso):
-
-```bash
-atlas migrate apply --url "$DATABASE_URL"
-```
-
-> Para a Sprint 2, **qualquer uma das três opções** é aceitável. O que importa é que o schema esteja versionado em arquivo.
-
----
-
-# Docker: PostgreSQL local
-
-Para desenvolver, **não instale PostgreSQL na máquina**. Use Docker:
-
-```bash
-docker run -d \
-  --name postgres-dev \
-  -p 5432:5432 \
-  -e POSTGRES_USER=dev \
-  -e POSTGRES_PASSWORD=secret \
-  -e POSTGRES_DB=myapp \
-  postgres:15
-```
-
-Ou com **docker-compose.yml** (Sprint 2 pede):
-
-```yaml
-services:
-  db:
-    image: postgres:15
-    ports: ["5432:5432"]
-    environment:
-      POSTGRES_USER: dev
-      POSTGRES_PASSWORD: secret
-      POSTGRES_DB: myapp
-```
-
-```bash
-docker compose up -d
-```
+> `r.Context()` propaga o deadline do request HTTP para a query. Se o cliente desconectar, a query é **cancelada no banco** automaticamente — sem trabalho desperdiçado.
 
 ---
 
@@ -393,49 +529,87 @@ docker compose up -d
 meu-projeto/
 ├── cmd/api/main.go
 ├── internal/
-│   ├── db/                        ← NOVO (gerado pelo sqlc)
+│   ├── db/                      ← gerado pelo sqlc (não editar)
 │   │   ├── contacts.sql.go
 │   │   ├── db.go
 │   │   └── models.go
-│   ├── handler/
-│   │   └── contacts.go            ← usa db.Queries
-│   └── middleware/
+│   └── handler/
+│       └── contacts.go          ← usa db.Queries
 ├── db/
-│   ├── schema/001_contacts.sql    ← NOVO (migrations)
-│   └── queries/contacts.sql       ← NOVO (queries SQL)
-├── sqlc.yaml                      ← NOVO
-├── docker-compose.yml             ← NOVO
-├── go.mod
-└── .github/workflows/ci.yml
+│   ├── schema/001_contacts.sql  ← fonte da verdade do schema
+│   └── queries/contacts.sql     ← queries anotadas
+├── sqlc.yaml
+├── docker-compose.yml           ← Sprint 2 pede isso
+└── go.mod
 ```
 
 ---
 
-# O que mudou do Sprint 1 para o Sprint 2
+# O que vem na quinta (07/05)
 
-| Sprint 1 | Sprint 2 |
-|----------|----------|
-| `map[string]Contact` | PostgreSQL + sqlc |
-| Dados em memória | Dados persistentes |
-| Sem schema | Schema versionado |
-| Sem Docker | docker-compose |
-| Tudo em `handler/` | Separação handler ↔ db |
+### Migrations — versionar o schema
 
-> Sprint 3 vai separar ainda mais: **Clean Architecture** com camadas service/repository.
+```
+db/migrations/
+├── 001_create_contacts.sql   # CREATE TABLE
+├── 002_add_phone.sql         # ALTER TABLE ... ADD COLUMN
+└── 003_create_orders.sql     # CREATE TABLE orders
+```
+
+Cada migration roda **uma vez**, em ordem.
+O banco lembra quais já foram aplicadas.
+É o `git` do schema — sem migrations, você não sabe o estado do banco em produção.
+
+### Clean Architecture — separar camadas
+
+```
+Handler → Repository (interface) → PostgresRepository
+                                 → MemoryRepository (testes)
+```
+
+O handler não sabe se está falando com PostgreSQL ou memória.
+Isso é o que permite testar sem banco real.
 
 ---
 
 # Resumo
 
-1. **sqlc** gera Go tipado a partir de SQL puro
-2. **Schema** versionado em arquivos SQL (`db/schema/`)
-3. **Queries** anotadas com `:one`, `:many`, `:exec`
-4. **`sqlc generate`** cria structs + funções automaticamente
-5. **PostgreSQL via Docker** para desenvolvimento local
-6. **Migrations** para aplicar schema de forma reprodutível
+<div class="columns">
+<div class="col">
 
-**Para fazer agora**:
-- Sprint 1: até 30/04 (encerrado)
-- Sprint 2: conectar API ao PostgreSQL — entrega **19/05 (ter)**
-- Lista 3: ⚠️ prazo prorrogado até **12/05 (ter) às 23:59**
-- Lista 4 (sqlc + Clean Architecture): publicada quinta 07/05
+**Hoje**
+
+1. `map` → 3 problemas: volatilidade, race, escala
+2. sqlc: SQL puro → Go tipado
+3. Docker para PostgreSQL local
+4. Schema + queries → `sqlc generate`
+5. Pool de conexões com pgxpool
+6. Handler: sem mutex, context, erro explícito
+
+</div>
+<div class="col">
+
+**Entregáveis Sprint 2 (19/05)**
+
+- API conectada a PostgreSQL com sqlc
+- Clean Architecture
+- 10+ testes automatizados
+- Pipeline CI
+- docker-compose.yml
+- Vídeo 8 min
+
+</div>
+</div>
+
+---
+
+# Próximos passos
+
+- **Lista 3**: ⚠️ prazo prorrogado até **12/05 (ter) às 23:59**
+- **Lista 4** (sqlc + Clean Architecture): publicada quinta 07/05, entrega **19/05 (ter)**
+- **Sprint 2**: entrega **19/05 (ter)**
+
+**Leituras para quinta**:
+- sqlc docs: [docs.sqlc.dev](https://docs.sqlc.dev)
+- Uncle Bob — Clean Architecture, cap. sobre boundaries (Discord)
+- Go project layout: [github.com/golang-standards/project-layout](https://github.com/golang-standards/project-layout)
