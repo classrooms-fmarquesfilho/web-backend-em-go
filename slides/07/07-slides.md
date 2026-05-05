@@ -84,7 +84,7 @@ style: |
 # PostgreSQL + sqlc
 ## Persistência type-safe para APIs Go
 
-**DIM0547 — Sprint 2 (28/04)**
+**DIM0547 — Sprint 2 (05/05)**
 
 **Prof. Fernando** · UFRN · 2026.1
 
@@ -435,6 +435,7 @@ meu-projeto/
 6. **Migrations** para aplicar schema de forma reprodutível
 
 **Para fazer agora**:
-- Sprint 1 (quem não entregou): **até quinta 30/04**
-- Sprint 2: conectar API ao PostgreSQL — entrega **08/05 (sex)**
-- Lista 4 (sqlc + Clean Architecture): publicada quinta
+- Sprint 1: até 30/04 (encerrado)
+- Sprint 2: conectar API ao PostgreSQL — entrega **19/05 (ter)**
+- Lista 3: ⚠️ prazo prorrogado até **12/05 (ter) às 23:59**
+- Lista 4 (sqlc + Clean Architecture): publicada quinta 07/05
