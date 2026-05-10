@@ -1,0 +1,63 @@
+# docker-compose para subir os três serviços de uma vez:
+#   db        → PostgreSQL 16 (porta 5432)
+#   backend   → API Go via sqlc (porta 8080)
+#   frontend  → SvelteKit dev server (porta 5173)
+#
+# O schema do banco é aplicado AUTOMATICAMENTE na primeira subida do db,
+# graças ao volume montado em /docker-entrypoint-initdb.d/ (mecanismo
+# nativo da imagem oficial do Postgres).
+#
+# Comandos úteis:
+#   docker compose up --build       sobe tudo
+#   docker compose up -d            sobe em background
+#   docker compose logs -f backend  acompanha logs do backend
+#   docker compose down             para tudo (preserva o volume)
+#   docker compose down -v          para tudo E apaga o volume do banco
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: lista04
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Schema aplicado uma única vez na primeira inicialização.
+      - ./backend/db/schema/001_contacts.sql:/docker-entrypoint-initdb.d/001_contacts.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d lista04"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      # Note: hostname `db` é o nome do serviço acima — o Docker resolve isso
+      # na rede interna do compose, sem precisar de DNS externo.
+      DATABASE_URL: "postgres://postgres:postgres@db:5432/lista04?sslmode=disable"
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy   # só sobe depois que o pg_isready passa
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      # API_TARGET é lido em vite.config.js — proxy /api/* vai para esse host.
+      # Aqui apontamos para o serviço `backend` na rede interna do compose.
+      API_TARGET: "http://backend:8080"
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
