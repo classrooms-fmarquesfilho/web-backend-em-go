@@ -106,12 +106,12 @@ style: |
 </div>
 <div class="col">
 
-**O que fica para quinta**
+**O que fica para próxima aula**
 
 - Migrations (versionar o schema)
 - Clean Architecture
 - Interface de repositório
-- Testes sem banco real
+- Testes
 
 </div>
 </div>
@@ -205,13 +205,11 @@ db/queries/contacts.sql                         db.go
 # PostgreSQL com Docker
 
 ```bash
-docker run -d \
-  --name postgres-webii \
+docker run -d --name lista04-postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=lista04 \
   -p 5432:5432 \
-  -e POSTGRES_USER=dev \
-  -e POSTGRES_PASSWORD=secret \
-  -e POSTGRES_DB=contacts \
-  postgres:15
+  postgres:16-alpine
 ```
 
 <div class="columns">
@@ -228,8 +226,83 @@ docker run -d \
 
 `-e POSTGRES_*` — configuração inicial da imagem oficial
 
-`postgres:15` — versão fixada.
+`postgres:16-alpine` — versão fixada.
 **Nunca use `latest`** em projetos reais.
+
+</div>
+</div>
+
+---
+
+# Falando com o banco: dois caminhos
+
+Você tem duas formas de abrir um *console SQL* no container que está rodando:
+
+<div class="columns">
+<div class="col">
+
+### A — `docker exec` <span class="pill-green">sem instalar nada</span>
+
+```bash
+docker exec -it lista04-postgres \
+  psql -U postgres -d contacts
+```
+
+Usa o `psql` que **já vem dentro** da imagem do Postgres. Funciona em qualquer máquina com Docker.
+
+</div>
+<div class="col">
+
+### B — `psql` local <span class="pill-blue">precisa do cliente</span>
+
+```bash
+psql "$DATABASE_URL"
+psql "$DATABASE_URL" -f schema.sql
+```
+
+Mais ergonômico — autocomplete, histórico do shell, redirecionar arquivos com `-f`. Mas exige instalar o **cliente** PostgreSQL.
+
+</div>
+</div>
+
+> Os comandos `psql "$DATABASE_URL" -f db/schema/*.sql` que aparecem na **Lista 4** assumem o caminho B.
+
+---
+
+# Instalando o cliente psql
+
+`psql` é só o **cliente** CLI. Não confunda com instalar um servidor PostgreSQL local — você não precisa, o servidor está no Docker.
+
+<div class="columns">
+<div class="col">
+
+```bash
+# macOS
+brew install libpq
+brew link --force libpq
+```
+
+```bash
+# Ubuntu / Debian
+sudo apt install postgresql-client
+```
+
+```bash
+# Fedora
+sudo dnf install postgresql
+```
+
+</div>
+<div class="col">
+
+**Verificar:**
+
+```bash
+psql --version
+# psql (PostgreSQL) 18.x
+```
+
+<span class="pill-blue">Codespace</span> já vem com `psql` configurado — esse slide importa só para quem trabalha **localmente**.
 
 </div>
 </div>
@@ -243,14 +316,17 @@ docker run -d \
 ```bash
 # Verificar que está rodando
 docker ps
-
-# Entrar no banco
-docker exec -it postgres-webii psql -U dev -d contacts
 ```
 
 ```bash
 # URL de conexão — interface padrão entre aplicação e banco
-export DATABASE_URL="postgres://dev:secret@localhost:5432/contacts?sslmode=disable"
+export DATABASE_URL="postgres://postgres:postgres@localhost:5432/contacts?sslmode=disable"
+
+# Caminho A: psql via docker exec (não precisa instalar nada)
+docker exec -it lista04-postgres psql -U postgres -d contacts
+
+# Caminho B: psql local (precisa do cliente — slide anterior)
+psql "$DATABASE_URL"
 ```
 
 *`sslmode=disable` apenas para desenvolvimento local. Em produção: sempre TLS.*
@@ -528,24 +604,26 @@ Abrir uma conexão TCP tem custo fixo (~5ms). Com pool esse custo é pago uma ve
 ```
 meu-projeto/
 ├── cmd/api/main.go
+├── handler/
+│   └── contacts.go              ← usa db.Queries
 ├── internal/
-│   ├── db/                      ← gerado pelo sqlc (não editar)
-│   │   ├── contacts.sql.go
-│   │   ├── db.go
-│   │   └── models.go
-│   └── handler/
-│       └── contacts.go          ← usa db.Queries
+│   └── db/                      ← gerado pelo sqlc (não editar)
+│       ├── contacts.sql.go
+│       ├── db.go
+│       └── models.go
 ├── db/
 │   ├── schema/001_contacts.sql  ← fonte da verdade do schema
 │   └── queries/contacts.sql     ← queries anotadas
 ├── sqlc.yaml
-├── docker-compose.yml           ← Sprint 2 pede isso
+├── docker-compose.yml           ← opcional (substitui o `docker run`)
 └── go.mod
 ```
 
+> Mesma estrutura usada na **Lista 4**. `internal/` é convenção do Go: pacotes ali não podem ser importados por outros módulos — protege a API gerada do sqlc.
+
 ---
 
-# O que vem na quinta (07/05)
+# O que vem na próxima aula
 
 ### Migrations — versionar o schema
 
@@ -595,8 +673,8 @@ Isso é o que permite testar sem banco real.
 - Clean Architecture
 - 10+ testes automatizados
 - Pipeline CI
-- docker-compose.yml
 - Vídeo 8 min
+- *(opcional)* `docker-compose.yml`
 
 </div>
 </div>
@@ -606,10 +684,9 @@ Isso é o que permite testar sem banco real.
 # Próximos passos
 
 - **Lista 3**: ⚠️ prazo prorrogado até **12/05 (ter) às 23:59**
-- **Lista 4** (sqlc + Clean Architecture): publicada quinta 07/05, entrega **19/05 (ter)**
+- **Lista 4** (sqlc + Repository pattern): **publicada** — prazo **19/05 (ter)**
 - **Sprint 2**: entrega **19/05 (ter)**
 
-**Leituras para quinta**:
+**Leituras**:
 - sqlc docs: [docs.sqlc.dev](https://docs.sqlc.dev)
-- Uncle Bob — Clean Architecture, cap. sobre boundaries (Discord)
 - Go project layout: [github.com/golang-standards/project-layout](https://github.com/golang-standards/project-layout)
