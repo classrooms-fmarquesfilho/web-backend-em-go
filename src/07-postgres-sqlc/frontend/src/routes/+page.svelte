@@ -100,7 +100,10 @@
 <section>
   <div class="list-header">
     <h2>Contatos {#if !loading}<span class="count">({contacts.length})</span>{/if}</h2>
-    <button on:click={load} disabled={loading} title="Recarregar">↻</button>
+    <div class="actions-header">
+      <a href="/contacts-with-phones" class="link-aggregate">Ver com telefones →</a>
+      <button on:click={load} disabled={loading} title="Recarregar">↻</button>
+    </div>
   </div>
 
   {#if loading}
@@ -164,6 +167,17 @@
     color: var(--muted);
     font-weight: normal;
   }
+  .actions-header {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .link-aggregate {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 0.88rem;
+  }
+  .link-aggregate:hover { text-decoration: underline; }
   ul {
     list-style: none;
     padding: 0;
