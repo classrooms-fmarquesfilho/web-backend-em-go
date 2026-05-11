@@ -106,12 +106,12 @@ style: |
 </div>
 <div class="col">
 
-**O que fica para próxima aula**
+**O que fica para depois**
 
-- Migrations (versionar o schema)
-- Clean Architecture
-- Interface de repositório
-- Testes
+- JOINs e relacionamentos 1:N (próxima aula)
+- Interface de repositório (Lista 4, Ex02)
+- Migrations versionadas (Sprint 3)
+- Testes automatizados (Sprint 3)
 
 </div>
 </div>
@@ -625,28 +625,32 @@ meu-projeto/
 
 # O que vem na próxima aula
 
-### Migrations — versionar o schema
+### JOINs e relacionamentos 1:N
 
-```
-db/migrations/
-├── 001_create_contacts.sql   # CREATE TABLE
-├── 002_add_phone.sql         # ALTER TABLE ... ADD COLUMN
-└── 003_create_orders.sql     # CREATE TABLE orders
-```
+Hoje, cada contato é uma linha em `contacts`. Mas e quando o contato tem **múltiplos telefones**?
 
-Cada migration roda **uma vez**, em ordem.
-O banco lembra quais já foram aplicadas.
-É o `git` do schema — sem migrations, você não sabe o estado do banco em produção.
+```sql
+-- contacts (1) ──< (N) phones
 
-### Clean Architecture — separar camadas
-
-```
-Handler → Repository (interface) → PostgresRepository
-                                 → MemoryRepository (testes)
+CREATE TABLE phones (
+    id         SERIAL PRIMARY KEY,
+    contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    label      TEXT NOT NULL,
+    number     TEXT NOT NULL
+);
 ```
 
-O handler não sabe se está falando com PostgreSQL ou memória.
-Isso é o que permite testar sem banco real.
+### O que sai do JOIN
+
+```sql
+SELECT c.*, p.label, p.number
+FROM contacts c
+LEFT JOIN phones p ON p.contact_id = c.id;
+```
+
+Linhas "achatadas" — Maria com 3 telefones vira 3 linhas. **O Go agrega** para devolver JSON aninhado.
+
+Veremos o que muda nos tipos gerados pelo sqlc (`pgtype.*`) e como evitar o **problema N+1**.
 
 ---
 
@@ -670,9 +674,8 @@ Isso é o que permite testar sem banco real.
 **Entregáveis Sprint 2 (19/05)**
 
 - API conectada a PostgreSQL com sqlc
-- Clean Architecture
-- 10+ testes automatizados
-- Pipeline CI
+- Pelo menos um relacionamento 1:N (JOIN)
+- Schema versionado em `db/schema/`
 - Vídeo 8 min
 - *(opcional)* `docker-compose.yml`
 
@@ -681,12 +684,113 @@ Isso é o que permite testar sem banco real.
 
 ---
 
+# Como entregar — Sprint 2 do projeto
+
+Entrega **em grupo**, via SIGAA. Prazo **19/05 (ter) às 23:59**.
+
+<div class="columns">
+<div class="col">
+
+### O que entregar
+
+- Link do repositório no GitHub
+- Link do vídeo de **8 min**
+
+### Estrutura do vídeo
+
+```
+1. Introdução (30s)
+   nome da equipe + objetivo do sprint
+2. Demonstração (~4min)
+   API persistindo dados, endpoints
+   funcionando
+3. Código (~2min30s)
+   schema, queries, decisões técnicas
+4. Desafios e próximos (~1min)
+```
+
+</div>
+<div class="col">
+
+### Avaliação
+
+| Critério | Peso |
+|----------|------|
+| Funcionalidade implementada | 30% |
+| Qualidade do código | 25% |
+| Testes automatizados | 20% |
+| Demonstração funcional | 15% |
+| Comunicação técnica | 10% |
+
+> Nesta Sprint 2, testes não ainda são pré-requisito (vêm na Sprint 3). 
+
+### Pré-requisitos técnicos
+
+- API conectada ao PostgreSQL via sqlc
+- Pelo menos um relacionamento 1:N
+- Schema versionado em `db/schema/`
+- *(opcional)* `docker-compose.yml`
+
+</div>
+</div>
+
+---
+
+# Como entregar — Lista 4
+
+Entrega **individual**, via GitHub Classroom. Prazo **19/05 (ter) às 23:59**.
+
+<div class="columns">
+<div class="col">
+
+### O que entregar
+
+Push no repositório criado pelo Classroom.
+
+```bash
+git add .
+git commit -m "ex0X: implementação"
+git push
+```
+
+Cada push roda o autograding. Você pode iterar até o prazo.
+
+> ⚠️ Lembre de **comitar** `internal/db/contacts.sql.go`
+> nos exercícios 3 e 4 (depois de `sqlc generate`).
+
+</div>
+<div class="col">
+
+### Pontuação (autograding)
+
+| Exercício | Pontos |
+|-----------|--------|
+| Ex01 — sqlc básico | 25 |
+| Ex02 — Repository | 25 |
+| Ex03 — Filtros + paginação | 25 |
+| Ex04 — JOIN 1:N | 25 |
+| **Total** | **100** |
+
+### Política de atraso
+
+- Até 1 dia: <span class="pill-red">-20%</span>
+- Até 3 dias: <span class="pill-red">-50%</span>
+- Após 3 dias: <span class="pill-red">não aceito</span>
+
+</div>
+</div>
+
+> A Lista 4 é **individual**. A Sprint 2 do projeto é em **grupo**. São entregas separadas com prazos coincidentes.
+
+---
+
 # Próximos passos
 
 - **Lista 3**: ⚠️ prazo prorrogado até **12/05 (ter) às 23:59**
-- **Lista 4** (sqlc + Repository pattern): **publicada** — prazo **19/05 (ter)**
+- **Lista 4** (sqlc + Repository pattern): **publicada** — comece o Ex01 hoje, prazo **19/05 (ter)**
 - **Sprint 2**: entrega **19/05 (ter)**
 
-**Leituras**:
-- sqlc docs: [docs.sqlc.dev](https://docs.sqlc.dev)
-- Go project layout: [github.com/golang-standards/project-layout](https://github.com/golang-standards/project-layout)
+**Leituras para a próxima aula**:
+- sqlc: [JOINs e queries com agregação](https://docs.sqlc.dev/en/stable/howto/select.html)
+- PostgreSQL: [Foreign Keys (tutorial)](https://www.postgresql.org/docs/current/tutorial-fk.html)
+- pgx: [`pgtype` package](https://pkg.go.dev/github.com/jackc/pgx/v5/pgtype)
