@@ -1,7 +1,5 @@
 // Exercício 1 — Migrar CRUD de Contatos para sqlc + PostgreSQL
 //
-// SOLUÇÃO. Veja SOLUCAO.md (na pasta do gabarito) para o raciocínio
-// passo-a-passo de cada um dos 4 TODOs.
 //
 // ── Endpoints ────────────────────────────────────────────────────────────────
 //   GET    /contacts        → 200 + array JSON
