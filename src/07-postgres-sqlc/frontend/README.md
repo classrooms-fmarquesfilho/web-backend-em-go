@@ -1,52 +1,40 @@
-# Lista 04 — Webapp de demonstração
+# Frontend — Webapp de demonstração
 
-Webapp SvelteKit que consome a API Go do **ex01** da Lista 04.
+Webapp SvelteKit que consome a API Go (na pasta `../backend/`). Cobre o material das aulas da Sprint 2: CRUD com sqlc e JOINs com relacionamentos 1:N.
 
-CRUD de contatos: lista, criação, detalhe e remoção.
+## Telas
 
-```
-┌──────────────────┐         ┌──────────────────┐         ┌──────────────┐
-│  SvelteKit (Vite)│         │ Vite Dev Proxy   │         │  API Go      │
-│   localhost:5173 │  /api/* │   /api → :8080   │         │ localhost:   │
-│                  │ ──────▶ │                  │ ──────▶ │   8080       │
-└──────────────────┘         └──────────────────┘         └──────────────┘
-                                                                  │
-                                                                  ▼
-                                                         ┌──────────────┐
-                                                         │ PostgreSQL   │
-                                                         └──────────────┘
-```
+| Rota | O que faz |
+|------|-----------|
+| `/` | Lista de contatos + formulário de criação + remoção |
+| `/contacts/{id}` | Detalhe do contato com gestão de telefones (criar/apagar) |
+| `/contacts-with-phones` | Visão agregada de **todos** os contatos com seus telefones — consome o endpoint `/contacts-with-phones` do backend (LEFT JOIN + agregação no Go) |
 
-## Pré-requisitos
+A rota `/contacts-with-phones` é mostrado na aula de JOINs. Ela mostra:
 
-- Node 20+
-- A API do ex01 da Lista 04 rodando em `http://localhost:8080`
-- PostgreSQL rodando (a API precisa)
+- Estatísticas: N contatos, M telefones totais, **1 requisição HTTP, 1 query SQL**
+- Tempo de resposta em ms
+- Botão para inspecionar o JSON cru retornado pelo backend
+- Cards visuais para cada contato com seus telefones aninhados
 
 ## Como rodar
 
+Esta pasta é parte do projeto integrado `07-postgres-sqlc/`. A forma mais simples é subir tudo via `docker-compose` lá da raiz:
+
 ```bash
-# 1. Suba o Postgres (se ainda não estiver rodando)
-docker run -d --name lista04-postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=lista04 \
-  -p 5432:5432 \
-  postgres:16-alpine
+cd ..                      # vá para 07-postgres-sqlc/
+docker compose up --build
+```
 
-export DATABASE_URL="postgres://postgres:postgres@localhost:5432/lista04?sslmode=disable"
+E abra http://localhost:5173.
 
-# 2. Aplique o schema e rode a API Go
-cd ../lista-04-template/ex01
-psql "$DATABASE_URL" -f db/schema/001_contacts.sql
-go run ./cmd/api &
+### Standalone (sem docker compose)
 
-# 3. Em outro terminal, rode o webapp
-cd lista-04-webapp
+```bash
+# Requer: API Go rodando em http://localhost:8080 (ver ../backend/)
 npm install
 npm run dev
 ```
-
-Abra `http://localhost:5173`.
 
 ## Estrutura
 
@@ -54,21 +42,46 @@ Abra `http://localhost:5173`.
 src/
   app.html
   lib/
-    api.js                       ← cliente HTTP da API (fetch tipado via JSDoc)
+    api.js                                          ← cliente HTTP da API
   routes/
-    +layout.svelte               ← header + footer
-    +page.svelte                 ← lista + form de criação
-    contacts/[id]/+page.svelte   ← detalhe + remoção
-    styles.css                   ← variáveis e componentes base
-vite.config.js                   ← proxy /api → http://localhost:8080
+    styles.css                                      ← tokens de cor e estilos base
+    +layout.svelte                                  ← header + footer
+    +page.svelte                                    ← lista + criação de contatos
+    contacts/[id]/+page.svelte                      ← detalhe + telefones
+    contacts-with-phones/+page.svelte               ← visão agregada (JOIN)
+vite.config.js                                      ← proxy /api → backend
 ```
 
-## Sobre o proxy
+## Cliente da API
 
-`vite.config.js` redireciona `/api/*` (do front) para `http://localhost:8080/*` (API Go), removendo o prefixo `/api`. Em desenvolvimento isso elimina problemas de CORS e permite chamar `fetch('/api/contacts')` direto.
+`src/lib/api.js` exporta funções tipadas (via JSDoc) para cada endpoint:
 
-Em produção, o webapp seria servido pelo mesmo gateway/reverse-proxy que serve a API, ou você ajustaria a constante `BASE` em `src/lib/api.js`.
+| Função | Endpoint |
+|--------|----------|
+| `listContacts()` | `GET /contacts` |
+| `getContact(id)` | `GET /contacts/{id}` |
+| `createContact({name, email})` | `POST /contacts` |
+| `deleteContact(id)` | `DELETE /contacts/{id}` |
+| `listPhones(contactId)` | `GET /contacts/{id}/phones` |
+| `createPhone(contactId, {label, number})` | `POST /contacts/{id}/phones` |
+| `deletePhone(contactId, phoneId)` | `DELETE /contacts/{contactId}/phones/{phoneId}` |
+| `listContactsWithPhones()` | `GET /contacts-with-phones` |
 
-## Por que SvelteKit?
+Os erros do backend (Problem Details, RFC 7807) são transformados em `Error` com a mensagem do `detail` para serem propagados naturalmente.
 
-Stack pequena, rápida de aprender, e suficiente para mostrar o ciclo completo de uma SPA consumindo uma API REST. Não há ambição de tornar isso um app de produção — é demonstração da Lista 04.
+## Proxy do Vite
+
+`vite.config.js` redireciona `/api/*` (do front) para o backend. Em duas situações:
+
+- **Dev local manual** (`API_TARGET` não definido): `http://localhost:8080`
+- **Dentro do docker-compose** (`API_TARGET=http://backend:8080`): aponta para o serviço `backend` na rede interna
+
+Isso elimina problemas de CORS em dev e mantém o código do frontend agnóstico de onde o backend está hospedado.
+
+## Stack
+
+- SvelteKit 2.15 + Svelte 5 + Vite 6
+- `@sveltejs/adapter-node` (build para Node)
+- Sem dependências de UI — CSS direto com tokens em `routes/styles.css`
+
+A escolha foi por uma stack pequena e direta, com foco em demonstrar o consumo da API. Não é um app de produção.
