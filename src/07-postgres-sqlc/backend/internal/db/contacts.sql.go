@@ -7,6 +7,8 @@ package db
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createContact = `-- name: CreateContact :one
@@ -32,12 +34,46 @@ func (q *Queries) CreateContact(ctx context.Context, arg CreateContactParams) (C
 	return i, err
 }
 
+const createPhone = `-- name: CreatePhone :one
+INSERT INTO phones (contact_id, label, number)
+VALUES ($1, $2, $3)
+RETURNING id, contact_id, label, number, created_at
+`
+
+type CreatePhoneParams struct {
+	ContactID int32  `json:"contact_id"`
+	Label     string `json:"label"`
+	Number    string `json:"number"`
+}
+
+func (q *Queries) CreatePhone(ctx context.Context, arg CreatePhoneParams) (Phone, error) {
+	row := q.db.QueryRow(ctx, createPhone, arg.ContactID, arg.Label, arg.Number)
+	var i Phone
+	err := row.Scan(
+		&i.ID,
+		&i.ContactID,
+		&i.Label,
+		&i.Number,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const deleteContact = `-- name: DeleteContact :exec
 DELETE FROM contacts WHERE id = $1
 `
 
 func (q *Queries) DeleteContact(ctx context.Context, id int32) error {
 	_, err := q.db.Exec(ctx, deleteContact, id)
+	return err
+}
+
+const deletePhone = `-- name: DeletePhone :exec
+DELETE FROM phones WHERE id = $1
+`
+
+func (q *Queries) DeletePhone(ctx context.Context, id int32) error {
+	_, err := q.db.Exec(ctx, deletePhone, id)
 	return err
 }
 
@@ -57,12 +93,30 @@ func (q *Queries) GetContact(ctx context.Context, id int32) (Contact, error) {
 	return i, err
 }
 
+const getPhone = `-- name: GetPhone :one
+SELECT id, contact_id, label, number, created_at FROM phones WHERE id = $1
+`
+
+func (q *Queries) GetPhone(ctx context.Context, id int32) (Phone, error) {
+	row := q.db.QueryRow(ctx, getPhone, id)
+	var i Phone
+	err := row.Scan(
+		&i.ID,
+		&i.ContactID,
+		&i.Label,
+		&i.Number,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const listContacts = `-- name: ListContacts :many
+
 
 SELECT id, name, email, created_at FROM contacts ORDER BY created_at DESC
 `
 
-// ex01/db/queries/contacts.sql
+// db/queries/contacts.sql
 //
 // Anotações sqlc:
 //
@@ -73,6 +127,7 @@ SELECT id, name, email, created_at FROM contacts ORDER BY created_at DESC
 // Cada bloco abaixo gera UMA função no Go. O nome após "name:" vira o nome
 // do método em internal/db/contacts.sql.go. Os "$1", "$2" são placeholders
 // posicionais do PostgreSQL — sqlc gera parâmetros tipados a partir deles.
+// ── Contatos ────────────────────────────────────────────────────────────────
 func (q *Queries) ListContacts(ctx context.Context) ([]Contact, error) {
 	rows, err := q.db.Query(ctx, listContacts)
 	if err != nil {
@@ -86,6 +141,99 @@ func (q *Queries) ListContacts(ctx context.Context) ([]Contact, error) {
 			&i.ID,
 			&i.Name,
 			&i.Email,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listContactsWithPhones = `-- name: ListContactsWithPhones :many
+
+SELECT
+    c.id, c.name, c.email, c.created_at,
+    p.id     AS phone_id,
+    p.label,
+    p.number
+FROM contacts c
+LEFT JOIN phones p ON p.contact_id = c.id
+ORDER BY c.id ASC, p.id ASC
+`
+
+type ListContactsWithPhonesRow struct {
+	ID        int32              `json:"id"`
+	Name      string             `json:"name"`
+	Email     string             `json:"email"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	PhoneID   pgtype.Int4        `json:"phone_id"`
+	Label     pgtype.Text        `json:"label"`
+	Number    pgtype.Text        `json:"number"`
+}
+
+// ── JOIN: contatos com seus telefones aninhados ─────────────────────────────
+//
+// Esta query é bem importante. LEFT JOIN porque queremos TODOS os contatos
+// (mesmo os que não têm telefones). Resultado é "achatado": um contato com 3
+// telefones vira 3 linhas; um contato sem telefones vira 1 linha com p.* NULL.
+//
+// Aliases (AS phone_id) evitam colisão com c.id no struct gerado pelo sqlc.
+// ORDER BY c.id garante que linhas do mesmo contato fiquem adjacentes —
+// essencial para a agregação em Go ser O(N).
+func (q *Queries) ListContactsWithPhones(ctx context.Context) ([]ListContactsWithPhonesRow, error) {
+	rows, err := q.db.Query(ctx, listContactsWithPhones)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListContactsWithPhonesRow
+	for rows.Next() {
+		var i ListContactsWithPhonesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Email,
+			&i.CreatedAt,
+			&i.PhoneID,
+			&i.Label,
+			&i.Number,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPhonesByContact = `-- name: ListPhonesByContact :many
+
+SELECT id, contact_id, label, number, created_at FROM phones
+WHERE contact_id = $1
+ORDER BY id ASC
+`
+
+// ── Telefones ───────────────────────────────────────────────────────────────
+func (q *Queries) ListPhonesByContact(ctx context.Context, contactID int32) ([]Phone, error) {
+	rows, err := q.db.Query(ctx, listPhonesByContact, contactID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Phone
+	for rows.Next() {
+		var i Phone
+		if err := rows.Scan(
+			&i.ID,
+			&i.ContactID,
+			&i.Label,
+			&i.Number,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err

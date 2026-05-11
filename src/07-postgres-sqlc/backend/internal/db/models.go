@@ -14,3 +14,11 @@ type Contact struct {
 	Email     string             `json:"email"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
+
+type Phone struct {
+	ID        int32              `json:"id"`
+	ContactID int32              `json:"contact_id"`
+	Label     string             `json:"label"`
+	Number    string             `json:"number"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}

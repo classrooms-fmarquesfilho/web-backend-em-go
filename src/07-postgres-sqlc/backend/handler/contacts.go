@@ -77,10 +77,21 @@ func NewRouterWithPool(pool *pgxpool.Pool) http.Handler {
 	a := &App{queries: db.New(pool)}
 
 	r := chi.NewRouter()
+
+	// Contatos (mesmo do ex01)
 	r.Get("/contacts", a.listContacts)
 	r.Post("/contacts", a.createContact)
 	r.Get("/contacts/{id}", a.getContact)
 	r.Delete("/contacts/{id}", a.deleteContact)
+
+	// Telefones (novo)
+	r.Get("/contacts/{id}/phones", a.listPhonesByContact)
+	r.Post("/contacts/{id}/phones", a.createPhone)
+	r.Delete("/contacts/{contactId}/phones/{phoneId}", a.deletePhone)
+
+	// JOIN agregado (novo)
+	r.Get("/contacts-with-phones", a.listContactsWithPhones)
+
 	return r
 }
 
@@ -204,4 +215,209 @@ func (a *App) deleteContact(w http.ResponseWriter, r *http.Request) {
 	//    corpo de resposta. Não use writeJSON aqui — 204 não pode ter
 	//    body por especificação.
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Handlers de telefones ───────────────────────────────────────────────────
+
+// listPhonesByContact retorna todos os telefones de um contato.
+//
+// Antes de listar, confirma que o contato existe — se você pedir telefones
+// do contato 9999 (que não existe), faz sentido retornar 404, não [].
+func (a *App) listPhonesByContact(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil {
+		writeProblem(w, http.StatusBadRequest, "Bad Request", "id must be an integer")
+		return
+	}
+
+	// Existência do contato
+	if _, err := a.queries.GetContact(r.Context(), int32(id)); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeProblem(w, http.StatusNotFound, "Not Found", "contact not found")
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError,
+			"Internal Server Error", "failed to check contact")
+		return
+	}
+
+	phones, err := a.queries.ListPhonesByContact(r.Context(), int32(id))
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError,
+			"Internal Server Error", "failed to list phones")
+		return
+	}
+	if phones == nil {
+		phones = []db.Phone{}
+	}
+
+	writeJSON(w, http.StatusOK, phones)
+}
+
+// createPhone cria um telefone para um contato existente.
+func (a *App) createPhone(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil {
+		writeProblem(w, http.StatusBadRequest, "Bad Request", "id must be an integer")
+		return
+	}
+
+	var body struct {
+		Label  string `json:"label"`
+		Number string `json:"number"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid json body")
+		return
+	}
+	if body.Label == "" || body.Number == "" {
+		writeProblem(w, http.StatusUnprocessableEntity,
+			"Unprocessable Entity", "label and number are required")
+		return
+	}
+
+	// Mesma checagem do listPhonesByContact: confirmar que o contato existe
+	// antes de tentar criar o telefone. Se confiássemos só na FK do banco,
+	// receberíamos um 500 em vez de um 404 legível.
+	if _, err := a.queries.GetContact(r.Context(), int32(id)); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeProblem(w, http.StatusNotFound, "Not Found", "contact not found")
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError,
+			"Internal Server Error", "failed to check contact")
+		return
+	}
+
+	phone, err := a.queries.CreatePhone(r.Context(), db.CreatePhoneParams{
+		ContactID: int32(id),
+		Label:     body.Label,
+		Number:    body.Number,
+	})
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError,
+			"Internal Server Error", "failed to create phone")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, phone)
+}
+
+// deletePhone remove um telefone específico.
+//
+// Recebe dois path params: o id do contato e o id do telefone. O id do
+// contato existe para deixar a URL semanticamente clara (telefone "pertence"
+// ao contato). A operação só lê o phoneId — a checagem de coerência (o
+// telefone pertence mesmo a esse contato?) é feita explicitamente.
+func (a *App) deletePhone(w http.ResponseWriter, r *http.Request) {
+	contactID, err := strconv.Atoi(chi.URLParam(r, "contactId"))
+	if err != nil {
+		writeProblem(w, http.StatusBadRequest, "Bad Request", "contactId must be an integer")
+		return
+	}
+	phoneID, err := strconv.Atoi(chi.URLParam(r, "phoneId"))
+	if err != nil {
+		writeProblem(w, http.StatusBadRequest, "Bad Request", "phoneId must be an integer")
+		return
+	}
+
+	// Buscar o telefone para confirmar (a) que existe, (b) que pertence
+	// ao contato indicado. Sem essa segunda checagem, alguém poderia
+	// deletar telefones de outros contatos só conhecendo o phoneId.
+	phone, err := a.queries.GetPhone(r.Context(), int32(phoneID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeProblem(w, http.StatusNotFound, "Not Found", "phone not found")
+			return
+		}
+		writeProblem(w, http.StatusInternalServerError,
+			"Internal Server Error", "failed to check phone")
+		return
+	}
+	if phone.ContactID != int32(contactID) {
+		// 404 (em vez de 403/400) para não vazar informação sobre
+		// existência de telefones de outros contatos.
+		writeProblem(w, http.StatusNotFound, "Not Found", "phone not found for this contact")
+		return
+	}
+
+	if err := a.queries.DeletePhone(r.Context(), int32(phoneID)); err != nil {
+		writeProblem(w, http.StatusInternalServerError,
+			"Internal Server Error", "failed to delete phone")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── JOIN agregado ───────────────────────────────────────────────────────────
+
+// Tipos de saída do endpoint /contacts-with-phones.
+//
+// Diferente de db.Contact (que vem do sqlc), aqui adicionamos um campo
+// Phones aninhado — não existe no banco, é construído na agregação.
+
+type PhoneOut struct {
+	ID     int32  `json:"id"`
+	Label  string `json:"label"`
+	Number string `json:"number"`
+}
+
+type ContactWithPhones struct {
+	ID     int32      `json:"id"`
+	Name   string     `json:"name"`
+	Email  string     `json:"email"`
+	Phones []PhoneOut `json:"phones"`
+}
+
+// listContactsWithPhones consome o LEFT JOIN e agrega no Go.
+//
+// O sqlc retorna linhas "achatadas": um contato com 3 telefones vira 3 linhas.
+// Um contato sem telefones vira 1 linha com PhoneID/Label/Number como NULL
+// (campos pgtype.* com .Valid == false).
+//
+// Agregamos em UMA passada (O(N)) usando:
+//   - um slice para preservar a ordem do ORDER BY
+//   - um map[contactID]int para lookup O(1) ao construir/encontrar o contato
+//
+// Por que `Phones: []PhoneOut{}` em vez de deixar nil?
+//
+//	Para serializar como `"phones": []` no JSON. Slice nil vira "null".
+func (a *App) listContactsWithPhones(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.queries.ListContactsWithPhones(r.Context())
+	if err != nil {
+		writeProblem(w, http.StatusInternalServerError,
+			"Internal Server Error", "failed to list contacts with phones")
+		return
+	}
+
+	result := []ContactWithPhones{}
+	index := map[int32]int{} // contactID → posição em `result`
+
+	for _, row := range rows {
+		i, exists := index[row.ID]
+		if !exists {
+			i = len(result)
+			result = append(result, ContactWithPhones{
+				ID:     row.ID,
+				Name:   row.Name,
+				Email:  row.Email,
+				Phones: []PhoneOut{},
+			})
+			index[row.ID] = i
+		}
+		// Aqui está o ponto sutil do LEFT JOIN: quando o contato não tem
+		// telefones, a linha vem com PhoneID/Label/Number como NULL no
+		// banco. pgtype.*.Valid == false sinaliza isso. Só agregamos quando
+		// há telefone de verdade.
+		if row.PhoneID.Valid {
+			result[i].Phones = append(result[i].Phones, PhoneOut{
+				ID:     row.PhoneID.Int32,
+				Label:  row.Label.String,
+				Number: row.Number.String,
+			})
+		}
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
