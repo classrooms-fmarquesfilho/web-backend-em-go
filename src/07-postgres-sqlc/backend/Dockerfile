@@ -4,8 +4,11 @@ FROM golang:1.22-alpine AS builder
 WORKDIR /app
 
 # Cache de dependências (camada separada para não invalidar a cada mudança de código).
-# Se você ainda não gerou `go.sum`, rode `go mod tidy` no host antes de buildar.
-COPY go.mod go.sum ./
+# `go.sum*` (com glob) torna o arquivo opcional — se você ainda não rodou
+# `go mod tidy` no host, o `go mod download` aqui dentro vai gerá-lo.
+# Para builds reprodutíveis, prefira gerar o go.sum no host e comitar.
+COPY go.mod ./
+COPY go.sum* ./
 RUN go mod download
 
 # Código + build
