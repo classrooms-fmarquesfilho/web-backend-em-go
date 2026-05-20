@@ -83,7 +83,7 @@ style: |
 
 # Autenticação com JWT
 
-**DIM0547 — Sprint 3 · Aula 09**
+**DIM0547 — Sprint 3**
 
 **Prof. Fernando** · UFRN · 2026.1
 
@@ -497,8 +497,6 @@ ctx := context.WithValue(r.Context(), userKey, claims)
 | Token nunca expira | Faltou a claim `exp` no `MapClaims` |
 | `panic` ao ler claim | Type assertion sem o `, ok` — claim ausente |
 
-> Antes de pedir ajuda: confira **o segredo** primeiro. Mais da metade dos `401` misteriosos são segredo divergente entre os dois lados.
-
 ---
 
 # Senhas: bcrypt, nunca texto puro
@@ -522,7 +520,7 @@ err := bcrypt.CompareHashAndPassword(user.PasswordHash, []byte(senha))
 
 # Checklist da aula
 
-A Sprint 3 (auth) entrega <span class="tag">prazo sprint: 29/05</span>:
+A Sprint 3 entrega os seguintes itens <span class="tag">(prazo sprint: 03/06)</span>:
 
 - [ ] `POST /login` confere senha com `bcrypt` e devolve JWT
 - [ ] Token assinado com `HS256` e segredo em **env var**
@@ -530,8 +528,6 @@ A Sprint 3 (auth) entrega <span class="tag">prazo sprint: 29/05</span>:
 - [ ] `AuthMiddleware` valida assinatura, `exp` e `alg`
 - [ ] Rotas sensíveis dentro de `r.Group` com o middleware
 - [ ] Handler lê a identidade via `context`
-
-> Se até o fim da aula o login devolve um token e uma rota protegida responde `401` sem ele e `200` com ele, **o principal da autenticação está pronto**.
 
 ---
 
@@ -546,4 +542,4 @@ A Sprint 3 (auth) entrega <span class="tag">prazo sprint: 29/05</span>:
 **Segurança**
 
 - [`golang.org/x/crypto/bcrypt`](https://pkg.go.dev/golang.org/x/crypto/bcrypt) — hashing de senhas
-- [OWASP — JWT Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html) — boas práticas
+- [OWASP](https://owasp.org/www-project-go-secure-coding-practices-guide/) — Livro sobre segurança em Go - boas práticas
