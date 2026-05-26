@@ -520,8 +520,6 @@ err := bcrypt.CompareHashAndPassword(user.PasswordHash, []byte(senha))
 
 # Checklist da aula
 
-A Sprint 3 entrega os seguintes itens <span class="tag">(prazo sprint: 03/06)</span>:
-
 - [ ] `POST /login` confere senha com `bcrypt` e devolve JWT
 - [ ] Token assinado com `HS256` e segredo em **env var**
 - [ ] Claim `exp` presente — token de acesso curto

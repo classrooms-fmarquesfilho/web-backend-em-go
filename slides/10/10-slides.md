@@ -378,8 +378,6 @@ func RequireScope(scope string) func(http.Handler) http.Handler {
 
 # Checklist da aula
 
-A Sprint 3 pede refresh token funcionando <span class="tag">prazo sprint: 03/06</span>:
-
 - [ ] `POST /login` devolve `access_token` **e** `refresh_token`
 - [ ] Refresh token guardado no banco como **hash**, com `expires_at`
 - [ ] `POST /refresh` valida existência, revogação e expiração
