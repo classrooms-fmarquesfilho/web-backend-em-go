@@ -102,7 +102,7 @@ Aula 07 (Vídeo 7) entregou a **identidade**:
 - `POST /login` confere a senha com **bcrypt** e devolve um **JWT**
 - `AuthMiddleware` valida o token e injeta o `userID` no contexto
 
-O que falta para a **Entrega Final (23/06)**:
+O que falta para a **Entrega Final (29/06)**:
 
 | Tema | Exercício | Risco que resolve |
 |---|---|---|
