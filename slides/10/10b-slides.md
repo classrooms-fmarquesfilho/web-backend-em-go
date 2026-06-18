@@ -91,64 +91,150 @@ style: |
 
 **Prof. Fernando** · UFRN · 2026.1
 
-> Segundo vídeo de autenticação. No anterior implementamos **login + JWT + middleware** (e o `ex01` com bcrypt). Aqui fechamos o que falta para a **Entrega Final**: **refresh tokens** e **correções de segurança (OWASP)** — resolvendo a **Lista 5+6** ao longo do caminho.
+> Segundo vídeo de autenticação. No anterior implementamos **senhas com bcrypt** e o **login com JWT**. Aqui fechamos o que falta para a **Entrega Final**: **autorização**, **refresh tokens** e **proteção contra abuso** — resolvendo a **Lista 5+6** de ponta a ponta.
 
 ---
 
 # De onde paramos — e como usar este vídeo
 
-Aula 07 (Vídeo 7) entregou:
+Aula 07 (Vídeo 7) entregou a **identidade**:
 
-- `POST /login` confere a senha com **bcrypt** e devolve um **JWT** (`ex01` + início do `ex02`)
-- `AuthMiddleware` valida assinatura, `exp` e `alg`, e injeta o `userID` no context
+- `POST /login` confere a senha com **bcrypt** e devolve um **JWT**
+- `AuthMiddleware` valida o token e injeta o `userID` no contexto
 
-O que a **Entrega Final (23/06)** ainda exige hoje:
+O que falta para a **Entrega Final (23/06)**:
 
-| Requisito | Onde resolvemos |
-|---|---|
-| Refresh token com rotação | `ex04` |
-| **≥ 2 correções de segurança OWASP** | ownership (`ex03`) + rate limiting (`ex04`) |
-
-> **Como o vídeo funciona**: a **teoria** fica nos slides; a **solução de cada exercício** eu mostro **no IDE**. Quando aparecer o quadro laranja <span class="tag">🖥️ SOLUÇÃO NO IDE</span>, estou alternando para o editor.
-
----
-
-# Mapa: Lista 5+6 ↔ Entrega Final
-
-A Lista 5+6 não será publicada como tarefa — resolvemos os exercícios **aqui** e o mesmo código sustenta a entrega do projeto.
-
-| Exercício | Conceito | O que provê para a entrega |
+| Tema | Exercício | Risco que resolve |
 |---|---|---|
-| `ex01` | bcrypt + handler testável | base de senhas (Aula 07) |
-| `ex02` | JWT (access token) | login + rotas protegidas |
-| `ex03` | **ownership** (OWASP API3) | 1ª correção de segurança |
-| `ex04` | refresh + **rate limiting** | rotação + 2ª correção (API4) |
+| Autorização por dono | `ex03` | OWASP **API1** (BOLA) |
+| Refresh tokens | `ex04` | sessão sem reduzir segurança |
+| Limitação de taxa | `ex05` | OWASP **API4** (abuso) |
 
-> Conceitos do repositório: **1** = `ex01`; **2** = `ex02`; **3** = `+ ex03`; **4** = `+ ex04`.
-
----
-
-# Parte 1 — Tokens de acesso e renovação
+> **Tudo em memória.** Esta lista foca em **segurança**, não em persistência — nada de banco, nada de configurar Postgres. A teoria fica nos slides; a **solução de cada exercício eu mostro no IDE** (quadro laranja <span class="tag">🖥️ SOLUÇÃO NO IDE</span>).
 
 ---
 
-# Recap: o access token (JWT) da Aula 07
+# Mapa: a Lista 5+6 em cinco passos
 
-O login devolve um **access token** assinado (HS256), curto (15 min), que o cliente envia em cada request:
+Cada exercício acrescenta **uma** ideia de segurança. A ordem importa: cada um se apoia no anterior.
+
+| # | Exercício | Pergunta que responde |
+|---|---|---|
+| `ex01` | Senhas (bcrypt) | Como guardar senha sem guardar a senha? ✓ (Aula 07) |
+| `ex02` | Access token (JWT) | Quem é o usuário em cada request? ✓ (Aula 07) |
+| `ex03` | Autorização (ownership) | Este usuário **pode** acessar **este** objeto? |
+| `ex04` | Refresh tokens | Como manter a sessão viva com segurança? |
+| `ex05` | Limitação de taxa | Como impedir abuso de um endpoint? |
+
+> Hoje resolvemos `ex03` → `ex04` → `ex05`, nessa ordem. `ex01` e `ex02` já estão prontos da aula passada — começamos com um recap rápido.
+
+---
+
+# Parte 1 — Identidade: quem é o usuário
+
+---
+
+# Recap: identidade já está resolvida
+
+A Aula 07 fechou os dois primeiros exercícios:
+
+- **`ex01` — bcrypt**: a senha nunca é guardada em texto puro; guardamos um *hash* lento e salgado. No login, `bcrypt.CompareHashAndPassword` confere.
+- **`ex02` — JWT**: o login devolve um **access token** assinado (HS256), curto (15 min), enviado em cada request:
 
 ```
 Authorization: Bearer eyJhbGc...
 ```
 
-Três cuidados que já vimos:
+Três cuidados que já adotamos no `ex02`:
 
 - **`exp` curto** — um vazamento tem impacto limitado no tempo
 - **`alg` validado no parse** — defesa contra o ataque `alg:none`
-- **erro genérico** no login (`invalid credentials`) — não revela se o email existe
+- **erro genérico** no login (`invalid credentials`) — não revela se o e-mail existe
 
-<div class="ide">🖥️ <strong>SOLUÇÃO NO IDE — ex02</strong> (fechamento)
-<span class="ide-files">· <code>internal/auth/jwt.go</code> → <code>GenerateAccessToken</code> / <code>ValidateAccessToken</code>
-· <code>handler/auth.go</code> → <code>Login</code> emitindo o token</span></div>
+> Esta é a base. O access token prova **quem** é o usuário. Mas provar quem é **não** é o mesmo que decidir o que ele pode fazer — é aí que entra a Parte 2.
+
+---
+
+# Parte 2 — Autorização: o que o usuário pode
+
+---
+
+# Autenticação ≠ Autorização
+
+| | Pergunta | Quem resolve |
+|---|---|---|
+| **Autenticação** | *Quem é você?* | login + JWT (Aula 07) |
+| **Autorização** | *Você pode fazer **isto**?* | regra no handler (hoje) |
+
+O JWT prova a identidade. Ele **não** decide o que essa identidade pode acessar — isso é responsabilidade de cada rota.
+
+```
+401 Unauthorized → não sei quem você é      (falta/inválido o token)
+403 Forbidden    → sei quem é, mas não pode  (sem permissão)
+404 Not Found    → o recurso não existe… ou você não pode saber que existe
+```
+
+> Guarde o **404 com segundo sentido** — ele é a chave da defesa contra o BOLA, logo adiante.
+
+---
+
+# OWASP API Security Top 10
+
+A **OWASP** mantém listas dos riscos de segurança mais comuns. APIs têm a **sua própria** lista, separada da web tradicional: não há tela, o cliente fala direto com os endpoints, e os ataques são outros.
+
+Hoje abordaremos as duas mais frequentes:
+
+| Risco | Nome | Onde, no projeto |
+|---|---|---|
+| **API1:2023** | *Broken Object Level Authorization* (BOLA) | acesso às notas (`ex03`) |
+| **API4:2023** | *Unrestricted Resource Consumption* | abuso do login (`ex05`) |
+
+> BOLA é, há anos, o **risco nº 1** em APIs — e o mais simples de explorar. É também o mais cobrado em revisão de código.
+
+---
+
+# API1 — BOLA, explicado
+
+**Object Level Authorization** = verificar, a cada acesso, se *aquele objeto específico* pertence a quem está pedindo.
+
+O ataque (também chamado **IDOR**):
+
+```
+Ana está logada e acessa a própria nota:
+    GET /notes/7      (Bearer <token da Ana>)   → OK, é dela
+
+Ana troca o id na URL:
+    GET /notes/8      (Bearer <token da Ana>)   → a nota 8 é de João
+```
+
+Se a API devolver a nota 8, ela **quebrou** a autorização por objeto. O token da Ana é válido (**autenticação** OK), mas ela **não é dona** da nota 8 (**autorização** falhou).
+
+> A falha não está no token — está em **esquecer de checar o dono**. Autenticar não é autorizar.
+
+---
+
+# API1 — a defesa: 404, não 403
+
+A regra de ouro: recurso de outro usuário → **404**, nunca **403**.
+
+```
+403 → "existe, mas você não pode"   ← confirma que a nota 8 existe
+404 → "não encontrado"               ← a existência fica indistinguível
+```
+
+Como garantir na prática (tudo em memória):
+
+- O *store* busca pela chave **e** confere o dono na mesma operação
+- "não existe" e "existe, mas é de outro" devolvem o **mesmo** erro
+- O handler traduz esse erro único para **404**
+
+<div class="ide">🖥️ <strong>SOLUÇÃO NO IDE — ex03</strong> (ownership)
+<span class="ide-files">· <code>internal/store/notes.go</code> → <code>GetForUser</code> / <code>UpdateForUser</code> / <code>DeleteForUser</code> (checagem <code>ok &amp;&amp; ownerID == userID</code>)
+· <code>handler/notes.go</code> → traduz <code>ErrNoteNotFound</code> em 404</span></div>
+
+---
+
+# Parte 3 — Sessão: manter o login vivo
 
 ---
 
@@ -174,25 +260,28 @@ Segurança e boa experiência puxam para lados opostos. Um único token não res
 | **Função** | Provar identidade em cada request | Obter um novo access token |
 | **Tempo de vida** | Curto — 15 min | Longo — 7 dias |
 | **Usado** | Em toda requisição | Só quando o access expira |
-| **É stateless?** | Sim — JWT autocontido | Não — guardado (em *hash*) no banco |
+| **É stateless?** | Sim — JWT autocontido | Não — guardado (em *hash*) no servidor |
 
-> O token que viaja muito (access) dura pouco. O que dura muito (refresh) quase não viaja — e, por estar no banco, **pode ser revogado**.
+> O token que viaja muito (access) dura pouco. O que dura muito (refresh) quase não viaja — e, por ser guardado no servidor, **pode ser revogado**.
 
 ---
 
-# Por que o refresh fica no banco
+# Por que o refresh é stateful
 
-```sql
-CREATE TABLE refresh_tokens (
-    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_hash TEXT NOT NULL,           -- hash, nunca o token original
-    expires_at TIMESTAMPTZ NOT NULL,
-    revoked_at TIMESTAMPTZ              -- NULL = ativo
-);
+O access token é stateless: a assinatura basta para validá-lo. O refresh é o oposto — precisa de **estado** para podermos revogá-lo:
+
+```go
+type RefreshToken struct {
+    Hash      string       // guardamos o HASH, nunca o token original
+    UserID    uuid.UUID
+    ExpiresAt time.Time
+    RevokedAt *time.Time   // nil = ativo
+}
 ```
 
-> Modelagem 1:N da Sprint 2 — um usuário tem muitos refresh tokens (um por dispositivo). `revoked_at NULL` é o estado "ativo"; preencher a data é revogar. Guardamos o **hash** (SHA-256): vazou o banco, os tokens não funcionam.
+> Um usuário tem **muitos** refresh tokens (um por dispositivo) — a relação 1:N que você já viu na Sprint 2, agora num *map* em memória. `RevokedAt == nil` é o estado "ativo".
+>
+> *Aqui guardamos em memória para focar no conceito; no projeto de vocês, isso vai no Postgres da Sprint 2.*
 
 ---
 
@@ -223,79 +312,12 @@ O `/logout` revoga o refresh e devolve **204 sempre** — exista ou não o token
 
 <div class="ide">🖥️ <strong>SOLUÇÃO NO IDE — ex04</strong> (refresh tokens)
 <span class="ide-files">· <code>internal/auth/token.go</code> → <code>GenerateRefreshToken</code> (crypto/rand) / <code>HashRefreshToken</code> (SHA-256)
+· <code>internal/store/refresh.go</code> → <code>Insert</code> / <code>FindByHash</code> / <code>Revoke</code> / <code>RevokeAll</code>
 · <code>handler/auth.go</code> → <code>Login</code> (emite o par), <code>Refresh</code> (rotação + reuso), <code>Logout</code></span></div>
 
 ---
 
-# Parte 2 — Autorização e Segurança (OWASP)
-
----
-
-# Autenticação ≠ Autorização
-
-| | Pergunta | Quem resolve |
-|---|---|---|
-| **Autenticação** | *Quem é você?* | login + JWT (Aula 07) |
-| **Autorização** | *Você pode fazer isto?* | regra de negócio no handler |
-
-O JWT prova **quem** é o usuário. Ele **não** decide o que esse usuário pode acessar — isso é com a gente, em cada rota.
-
-```
-401 Unauthorized → não sei quem você é      (falta/inválido o token)
-403 Forbidden    → sei quem é, mas não pode  (sem permissão)
-404 Not Found    → o recurso não existe… ou você não pode saber que existe
-```
-
-> A distinção 401/403/404 é o vocabulário de toda esta parte. Guarde o **404 com segundo sentido** — voltamos a ele no BOLA.
-
----
-
-# OWASP API Security Top 10
-
-A **OWASP** mantém uma lista dos riscos mais comuns. APIs têm a **sua própria** lista (separada da web tradicional), porque os ataques são diferentes: não há tela, e o cliente fala direto com os endpoints.
-
-Hoje abordaremos as duas mais frequentes:
-
-| Risco | Nome | Onde, no projeto |
-|---|---|---|
-| **API3:2023** | *Broken Object Level Authorization* (BOLA) | acesso às notas (`ex03`) |
-| **API4:2023** | *Unrestricted Resource Consumption* | força bruta no login (`ex04`) |
-
-> BOLA é, há anos, o **risco nº 1** em APIs. É também o mais simples de explorar — e, por isso, o mais cobrado em revisão.
-
----
-
-# API3 — BOLA, explicado
-
-**Object Level Authorization** = verificar, a cada acesso, se *aquele objeto específico* pertence a quem está pedindo.
-
-O ataque (também chamado **IDOR**):
-
-```
-Ana está logada e acessa a própria nota:
-    GET /notes/7   (Authorization: Bearer <token da Ana>)
-
-Ana troca o id na URL:
-    GET /notes/8   ← a nota 8 é de João
-```
-
-Se a API devolver a nota 8, **quebrou** o controle de autorização por objeto. O token da Ana é válido (autenticação OK), mas ela **não é dona** da nota 8 (autorização falhou).
-
-> A falha não está no token — está em **esquecer de checar o dono**. Autenticar não é autorizar.
-
----
-
-# API3 — a defesa: 404, não 403
-
-A regra de ouro da autorização: recurso de outro usuário → **404**, nunca **403**.
-
-```
-403 → "existe, mas você não pode"   ← confirma que a nota 8 existe
-404 → "não encontrado"               ← a existência fica indistinguível
-```
-
-<div class="ide">🖥️ <strong>SOLUÇÃO NO IDE — ex03</strong> (ownership)
-<span class="ide-files">· <code>handler/notes.go</code> → <code>Get</code> / <code>Update</code> / <code>Delete</code> traduzindo <code>ErrNoteNotFound</code> em 404</span></div>
+# Parte 4 — Proteção contra abuso
 
 ---
 
@@ -307,7 +329,7 @@ APIs gastam recursos a cada request: CPU, banco, e-mail, SMS. Sem limite, um cli
 - **Negação de serviço** (DoS) — afogar o servidor de requisições
 - Estouro de custo em serviços pagos (envio de SMS, etc.)
 
-A defesa é **limitar a taxa** (rate limiting) por origem (IP):
+A defesa é **limitar a taxa** por origem (IP):
 
 ```
 até 5 req/s por IP, com folga (burst) de 10
@@ -320,12 +342,12 @@ acima disso  →  429 Too Many Requests  (+ header Retry-After)
 
 # API4 — rate limiting no login
 
-O middleware fica **na frente** do handler de login: lê o IP de origem, consulta o limiter daquele IP e, se estourou, corta a requisição com **429** antes de tocar no banco.
+O middleware fica **na frente** do handler de login: lê o IP de origem, consulta o *limiter* daquele IP e, se estourou, corta a requisição com **429** antes de tocar no resto.
 
 - Um `rate.Limiter` por IP, guardados num `map` protegido por mutex
 - `429` com `Retry-After: 1` e corpo JSON `{"error":"rate limit exceeded"}`
 
-<div class="ide">🖥️ <strong>SOLUÇÃO NO IDE — ex04</strong> (rate limiting)
+<div class="ide">🖥️ <strong>SOLUÇÃO NO IDE — ex05</strong> (limitação de taxa)
 <span class="ide-files">· <code>middleware/rate_limit.go</code> → <code>Middleware</code> (SplitHostPort → getLimiter → Allow → 429)
 · <code>cmd/api/main.go</code> → onde o limiter é plugado só no <code>/login</code></span></div>
 
@@ -335,26 +357,27 @@ O middleware fica **na frente** do handler de login: lê o IP de origem, consult
 
 | Correção | OWASP / risco | Onde |
 |---|---|---|
-| Ownership por objeto (404, não 403) | **API3:2023** BOLA | `ex03` |
-| Rate limiting no login | **API4:2023** | `ex04` |
+| Autorização por objeto (404, não 403) | **API1:2023** BOLA | `ex03` |
+| Limitação de taxa no login | **API4:2023** | `ex05` |
 | Mensagem genérica "invalid credentials" | enumeração de usuário | `ex02` |
 | `alg` validado no parse | ataque `alg:none` | `ex02` |
-| Senha em **bcrypt**, refresh em **SHA-256** | vazamento de banco | `ex01`/`ex04` |
-| `JWT_SECRET` em *env var* | segredo no repositório | config |
+| Senha em **bcrypt**, refresh em **SHA-256** | vazamento de dados | `ex01`/`ex04` |
+| `JWT_SECRET` em variável de ambiente | segredo no repositório | config |
 
-> Para a entrega, **duas** correções já bastam.
+> Para a Entrega Final, **duas** correções já bastam.
 
 ---
 
 # Referências
 
-**Refresh tokens e sessão**
+**Identidade e sessão**
 
+- [`golang-jwt/jwt`](https://github.com/golang-jwt/jwt) — access tokens
 - [OWASP — Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
-- [`golang-jwt/jwt`](https://github.com/golang-jwt/jwt) · [`golang.org/x/time/rate`](https://pkg.go.dev/golang.org/x/time/rate)
+- [`golang.org/x/time/rate`](https://pkg.go.dev/golang.org/x/time/rate) — token bucket
 
 **OWASP API Security**
 
 - [OWASP API Security Top 10 (2023)](https://owasp.org/API-Security/editions/2023/en/0x11-t10/) — visão geral
-- [API3:2023 — Broken Object Level Authorization](https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/)
+- [API1:2023 — Broken Object Level Authorization](https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/)
 - [API4:2023 — Unrestricted Resource Consumption](https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/)
