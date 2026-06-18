@@ -85,13 +85,13 @@ style: |
 
 ---
 
-# Segurança da API — resolvendo a Lista 5+6
+# Segurança da API
 
 **DIM0547 — Sprint 3 · Vídeo 8 (Parte 2 de Autenticação)**
 
 **Prof. Fernando** · UFRN · 2026.1
 
-> Segundo vídeo de autenticação. No anterior implementamos **senhas com bcrypt** e o **login com JWT**. Aqui fechamos o que falta para a **Entrega Final**: **autorização**, **refresh tokens** e **proteção contra abuso** — resolvendo a **Lista 5+6** de ponta a ponta.
+> Segundo vídeo de autenticação. No anterior implementamos **senhas com bcrypt** e o **login com JWT**. Aqui fechamos o que falta para a **Entrega Final**: **autorização**, **refresh tokens** e **proteção contra abuso** (através de limitação de taxa, ou _rate limiting_).
 
 ---
 
@@ -110,7 +110,7 @@ O que falta para a **Entrega Final (23/06)**:
 | Refresh tokens | `ex04` | sessão sem reduzir segurança |
 | Limitação de taxa | `ex05` | OWASP **API4** (abuso) |
 
-> **Tudo em memória.** Esta lista foca em **segurança**, não em persistência — nada de banco, nada de configurar Postgres. A teoria fica nos slides; a **solução de cada exercício eu mostro no IDE** (quadro laranja <span class="tag">🖥️ SOLUÇÃO NO IDE</span>).
+> **Está tudo em memória.** Esta lista foca em **segurança**, não em persistência.
 
 ---
 
@@ -138,7 +138,7 @@ Cada exercício acrescenta **uma** ideia de segurança. A ordem importa: cada um
 
 A Aula 07 fechou os dois primeiros exercícios:
 
-- **`ex01` — bcrypt**: a senha nunca é guardada em texto puro; guardamos um *hash* lento e salgado. No login, `bcrypt.CompareHashAndPassword` confere.
+- **`ex01` — bcrypt**: a senha nunca é guardada em texto puro; guardamos um *hash*. No login, `bcrypt.CompareHashAndPassword` confere se a senha bate com o *hash*.
 - **`ex02` — JWT**: o login devolve um **access token** assinado (HS256), curto (15 min), enviado em cada request:
 
 ```
@@ -164,7 +164,7 @@ Três cuidados que já adotamos no `ex02`:
 | | Pergunta | Quem resolve |
 |---|---|---|
 | **Autenticação** | *Quem é você?* | login + JWT (Aula 07) |
-| **Autorização** | *Você pode fazer **isto**?* | regra no handler (hoje) |
+| **Autorização** | *Você pode fazer **isto**?* | regra no handler |
 
 O JWT prova a identidade. Ele **não** decide o que essa identidade pode acessar — isso é responsabilidade de cada rota.
 
@@ -222,7 +222,7 @@ A regra de ouro: recurso de outro usuário → **404**, nunca **403**.
 404 → "não encontrado"               ← a existência fica indistinguível
 ```
 
-Como garantir na prática (tudo em memória):
+Como garantir na prática:
 
 - O *store* busca pela chave **e** confere o dono na mesma operação
 - "não existe" e "existe, mas é de outro" devolvem o **mesmo** erro
@@ -234,17 +234,17 @@ Como garantir na prática (tudo em memória):
 
 ---
 
-# Parte 3 — Sessão: manter o login vivo
+# Parte 3 — Sessão: como manter o login ativo
 
 ---
 
 # O dilema do tempo de vida
 
 ```
-exp curto (minutos)              exp longo (dias)
-└─ vazamento dura pouco          └─ vazamento dura muito
-└─ usuário relogga toda hora     └─ usuário fica logado
-   (péssima UX)                     (boa UX, péssima segurança)
+exp curto (minutos)                       exp longo (dias)
+└─ vazamento dura pouco                   └─ vazamento dura muito
+└─ usuário precisa autenticar toda hora   └─ usuário fica logado
+   (péssima UX)                              (boa UX, péssima segurança)
 ```
 
 Segurança e boa experiência puxam para lados opostos. Um único token não resolve.
@@ -280,8 +280,6 @@ type RefreshToken struct {
 ```
 
 > Um usuário tem **muitos** refresh tokens (um por dispositivo) — a relação 1:N que você já viu na Sprint 2, agora num *map* em memória. `RevokedAt == nil` é o estado "ativo".
->
-> *Aqui guardamos em memória para focar no conceito; no projeto de vocês, isso vai no Postgres da Sprint 2.*
 
 ---
 
@@ -342,9 +340,9 @@ acima disso  →  429 Too Many Requests  (+ header Retry-After)
 
 # API4 — rate limiting no login
 
-O middleware fica **na frente** do handler de login: lê o IP de origem, consulta o *limiter* daquele IP e, se estourou, corta a requisição com **429** antes de tocar no resto.
+O middleware fica **na frente** do handler de login: lê o IP de origem, consulta o *limiter* daquele IP e, se estourou, corta a requisição com **429** antes de passar a chamada adiante.
 
-- Um `rate.Limiter` por IP, guardados num `map` protegido por mutex
+- Um `rate.Limiter` por IP, guardados num `map` 
 - `429` com `Retry-After: 1` e corpo JSON `{"error":"rate limit exceeded"}`
 
 <div class="ide">🖥️ <strong>SOLUÇÃO NO IDE — ex05</strong> (limitação de taxa)
@@ -358,7 +356,7 @@ O middleware fica **na frente** do handler de login: lê o IP de origem, consult
 | Correção | OWASP / risco | Onde |
 |---|---|---|
 | Autorização por objeto (404, não 403) | **API1:2023** BOLA | `ex03` |
-| Limitação de taxa no login | **API4:2023** | `ex05` |
+| Limitação de taxa no login | **API4:2023** URC | `ex05` |
 | Mensagem genérica "invalid credentials" | enumeração de usuário | `ex02` |
 | `alg` validado no parse | ataque `alg:none` | `ex02` |
 | Senha em **bcrypt**, refresh em **SHA-256** | vazamento de dados | `ex01`/`ex04` |
